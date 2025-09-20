@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './AuthContext';
 
 export interface WeatherData {
   location: string;
@@ -20,8 +22,8 @@ interface WeatherContextType {
   error: string | null;
   searchWeather: (city: string) => Promise<void>;
   getCurrentLocationWeather: () => Promise<void>;
-  addToFavorites: (city: string) => void;
-  removeFromFavorites: (city: string) => void;
+  addToFavorites: (city: string) => Promise<void>;
+  removeFromFavorites: (city: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -41,42 +43,70 @@ interface WeatherProviderProps {
 
 export const WeatherProvider: React.FC<WeatherProviderProps> = ({ children }) => {
   const [currentWeather, setCurrentWeather] = useState<WeatherData | null>(null);
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    const stored = localStorage.getItem('weatherApp_favorites');
-    return stored ? JSON.parse(stored) : [];
-  });
-  const [lastSearched, setLastSearched] = useState<string | null>(() => {
-    return localStorage.getItem('weatherApp_lastSearched');
-  });
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [lastSearched, setLastSearched] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
 
-  const mockWeatherData = (city: string): WeatherData => ({
-    location: city,
-    temperature: Math.floor(Math.random() * 30) + 5,
-    description: ['Sunny', 'Cloudy', 'Rainy', 'Partly Cloudy'][Math.floor(Math.random() * 4)],
-    humidity: Math.floor(Math.random() * 40) + 40,
-    windSpeed: Math.floor(Math.random() * 20) + 5,
-    visibility: Math.floor(Math.random() * 5) + 8,
-    pressure: Math.floor(Math.random() * 50) + 1000,
-    icon: '01d',
-    country: 'US'
-  });
+  // Load favorites from database when user is authenticated
+  useEffect(() => {
+    if (user) {
+      loadFavorites();
+    } else {
+      setFavorites([]);
+    }
+  }, [user]);
+
+  const loadFavorites = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_favorites')
+        .select('city_name')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error loading favorites:', error);
+        return;
+      }
+
+      setFavorites(data?.map(fav => fav.city_name) || []);
+    } catch (error) {
+      console.error('Error loading favorites:', error);
+    }
+  };
 
   const searchWeather = async (city: string) => {
     setLoading(true);
     setError(null);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const weatherData = mockWeatherData(city);
-      setCurrentWeather(weatherData);
+      const { data, error: functionError } = await supabase.functions.invoke('get-weather', {
+        body: { city }
+      });
+
+      if (functionError) {
+        throw new Error(functionError.message || 'Failed to fetch weather data');
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setCurrentWeather(data);
       setLastSearched(city);
+      
+      // Store in localStorage for offline access
       localStorage.setItem('weatherApp_lastSearched', city);
+      localStorage.setItem('weatherApp_currentWeather', JSON.stringify(data));
+      
     } catch (err) {
-      setError('Failed to fetch weather data. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch weather data. Please try again.';
+      setError(errorMessage);
+      console.error('Weather search error:', err);
     } finally {
       setLoading(false);
     }
@@ -87,33 +117,119 @@ export const WeatherProvider: React.FC<WeatherProviderProps> = ({ children }) =>
     setError(null);
     
     try {
-      // Simulate getting current location
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!navigator.geolocation) {
+        throw new Error('Geolocation is not supported by this browser');
+      }
+
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 10000,
+          enableHighAccuracy: true
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
       
-      const weatherData = mockWeatherData('Your Location');
-      setCurrentWeather(weatherData);
+      // Get weather by coordinates using our edge function
+      const { data, error: functionError } = await supabase.functions.invoke('get-weather', {
+        body: { coordinates: { lat: latitude, lon: longitude } }
+      });
+
+      if (functionError) {
+        throw new Error(functionError.message || 'Failed to fetch weather data');
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setCurrentWeather(data);
+      setLastSearched(data.location);
+      
+      // Store in localStorage for offline access
+      localStorage.setItem('weatherApp_lastSearched', data.location);
+      localStorage.setItem('weatherApp_currentWeather', JSON.stringify(data));
+      
     } catch (err) {
-      setError('Failed to get location weather. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get location weather. Please try again.';
+      setError(errorMessage);
+      console.error('Geolocation error:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const addToFavorites = (city: string) => {
-    if (!favorites.includes(city)) {
-      const newFavorites = [...favorites, city];
-      setFavorites(newFavorites);
-      localStorage.setItem('weatherApp_favorites', JSON.stringify(newFavorites));
+  const addToFavorites = async (city: string) => {
+    if (!user) {
+      setError('Please log in to save favorites');
+      return;
+    }
+
+    if (favorites.includes(city)) {
+      return; // Already in favorites
+    }
+
+    try {
+      const { error } = await supabase
+        .from('user_favorites')
+        .insert({
+          user_id: user.id,
+          city_name: city
+        });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      setFavorites(prev => [...prev, city]);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add to favorites';
+      setError(errorMessage);
+      console.error('Add to favorites error:', err);
     }
   };
 
-  const removeFromFavorites = (city: string) => {
-    const newFavorites = favorites.filter(fav => fav !== city);
-    setFavorites(newFavorites);
-    localStorage.setItem('weatherApp_favorites', JSON.stringify(newFavorites));
+  const removeFromFavorites = async (city: string) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('user_favorites')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('city_name', city);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      setFavorites(prev => prev.filter(fav => fav !== city));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to remove from favorites';
+      setError(errorMessage);
+      console.error('Remove from favorites error:', err);
+    }
   };
 
   const clearError = () => setError(null);
+
+  // Load cached data on mount
+  useEffect(() => {
+    const cachedLastSearched = localStorage.getItem('weatherApp_lastSearched');
+    const cachedWeather = localStorage.getItem('weatherApp_currentWeather');
+    
+    if (cachedLastSearched) {
+      setLastSearched(cachedLastSearched);
+    }
+    
+    if (cachedWeather) {
+      try {
+        setCurrentWeather(JSON.parse(cachedWeather));
+      } catch (error) {
+        console.error('Error parsing cached weather data:', error);
+      }
+    }
+  }, []);
 
   const value = {
     currentWeather,

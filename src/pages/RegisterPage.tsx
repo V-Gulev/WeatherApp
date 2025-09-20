@@ -37,7 +37,7 @@ const RegisterPage = () => {
 
     try {
       const success = await register(name, email, password);
-      if (success) {
+      if (success.success) {
         toast({
           title: "Account created!",
           description: "Welcome to Weather App. You're now signed in.",
@@ -46,7 +46,7 @@ const RegisterPage = () => {
       } else {
         toast({
           title: "Registration failed",
-          description: "Please try again with different details.",
+          description: success.error || "Please try again with different details.",
           variant: "destructive",
         });
       }

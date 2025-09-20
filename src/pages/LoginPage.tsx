@@ -23,8 +23,8 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
-      const success = await login(email, password);
-      if (success) {
+    const success = await login(email, password);
+        if (success.success) {
         toast({
           title: "Welcome back!",
           description: "You've been successfully logged in.",
@@ -33,7 +33,7 @@ const LoginPage = () => {
       } else {
         toast({
           title: "Login failed",
-          description: "Please check your credentials and try again.",
+          description: success.error || "Please check your credentials and try again.",
           variant: "destructive",
         });
       }

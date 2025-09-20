@@ -9,7 +9,7 @@ import WeatherSearch from '@/components/WeatherSearch';
 import { Heart, User, Star, LogOut, Plus } from 'lucide-react';
 
 const WeatherPage = () => {
-  const { user, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
   const { currentWeather, error, lastSearched, searchWeather, addToFavorites, clearError } = useWeather();
   const navigate = useNavigate();
 
@@ -38,7 +38,7 @@ const WeatherPage = () => {
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <h1 className="text-2xl font-bold text-primary">Weather App</h1>
-            <span className="text-muted-foreground">Welcome, {user?.name}</span>
+            <span className="text-muted-foreground">Welcome, {profile?.display_name || user?.email}</span>
           </div>
           
           <nav className="flex items-center space-x-2">

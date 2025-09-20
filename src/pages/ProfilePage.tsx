@@ -8,7 +8,7 @@ import { useWeather } from '@/contexts/WeatherContext';
 import { ArrowLeft, Mail, User, Heart, Search, MapPin } from 'lucide-react';
 
 const ProfilePage = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { favorites, lastSearched } = useWeather();
 
   return (
@@ -36,7 +36,7 @@ const ProfilePage = () => {
                 <User className="w-10 h-10 text-primary-foreground" />
               </div>
               <div>
-                <CardTitle className="text-2xl">{user?.name}</CardTitle>
+                <CardTitle className="text-2xl">{profile?.display_name || user?.email}</CardTitle>
                 <div className="flex items-center justify-center mt-2 text-muted-foreground">
                   <Mail className="w-4 h-4 mr-2" />
                   {user?.email}
