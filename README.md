@@ -1,6 +1,6 @@
 # Weather App
 
-## Project info
+##School Project info
 
 **URL**: https://lovable.dev/projects/7b3436f0-652a-4826-b190-dc706d1be19b
 
